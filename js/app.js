@@ -372,7 +372,7 @@ function Cover({ q, phase }) {
     </div>`;
 }
 
-function Question({ q, num, total, phase, value, onChange, files, onFiles }) {
+function Question({ q, num, total, phase, value, onChange, files, onFiles, nudge }) {
   const Field = FIELDS[q.type];
   const gallery = (/^photo/.test(q.type) || q.type === 'colors') && q.options.length > 6;
   return html`
@@ -382,9 +382,9 @@ function Question({ q, num, total, phase, value, onChange, files, onFiles }) {
         ${q.section && html`<div class="q__section">${q.section}</div>`}
         <h1 class="q__title">${q.title}</h1>
         ${q.hint && html`<p class="q__hint">${q.hint}</p>`}
-        ${q.required && html`<p class="q__req">Обов’язкове питання</p>`}
+        ${q.required && html`<p class=${'q__req' + (nudge ? ' is-nudge' : '')}>Обов’язкове питання</p>`}
       </div>
-      <div class="q__field">
+      <div class=${'q__field' + (nudge ? ' is-nudge' : '')}>
         <${Field} q=${q} value=${value} onChange=${onChange} files=${files} onFiles=${onFiles}/>
       </div>
     </div>`;
@@ -480,6 +480,90 @@ function Brief({ list, answers, files }) {
     </div>`;
 }
 
+/* Підказка на заблокованій кнопці «Далі» */
+function lockHint(q) {
+  if (q.requiredHint) return q.requiredHint;
+  switch (q.type) {
+    case 'single': case 'photoSingle':
+      return 'Оберіть один варіант, щоб продовжити';
+    case 'multi': case 'photoMulti': case 'chips': case 'colors':
+      return 'Оберіть хоча б один варіант, щоб продовжити';
+    case 'fields':
+      return 'Заповніть поля, щоб продовжити';
+    case 'repeater':
+      return 'Додайте хоча б один запис, щоб продовжити';
+    case 'upload':
+      return 'Додайте хоча б один файл, щоб продовжити';
+    default:
+      return 'Напишіть відповідь, щоб продовжити';
+  }
+}
+
+/* =========================================================
+   Зміст — перехід до будь-якого питання
+   ========================================================= */
+
+function Toc({ list, answers, index, onJump, onClose, onRestart }) {
+  const groups = [];
+  const byTitle = {};
+  list.forEach((item, i) => {
+    if (item.type === 'cover') return;
+    const title = item.section || 'Загальне';
+    if (!byTitle[title]) { byTitle[title] = { title, items: [] }; groups.push(byTitle[title]); }
+    byTitle[title].items.push({ q: item, index: i });
+  });
+
+  const real = list.filter(x => x.type !== 'cover' && x.type !== 'review');
+  const done = real.filter(x => isAnswered(x, answers)).length;
+
+  useEffect(() => {
+    const h = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', h);
+    document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', h); document.body.style.overflow = ''; };
+  }, [onClose]);
+
+  return html`
+    <div class="toc" role="dialog" aria-modal="true" aria-label="Зміст анкети">
+      <div class="toc__backdrop" onClick=${onClose}></div>
+      <aside class="toc__panel">
+        <header class="toc__head">
+          <div>
+            <div class="q__section">Зміст</div>
+            <h2 class="toc__title">Усі питання</h2>
+            <p class="toc__stat">Заповнено <b>${done}</b> із ${real.length}</p>
+          </div>
+          <button class="toc__close" onClick=${onClose} aria-label="Закрити зміст">×</button>
+        </header>
+
+        <div class="toc__body">
+          ${groups.map(g => html`
+            <section class="tgroup" key=${g.title}>
+              <h3 class="tgroup__title">${g.title}</h3>
+              ${g.items.map(it => {
+                const isReview = it.q.type === 'review';
+                const ok = !isReview && isAnswered(it.q, answers);
+                const need = !isReview && it.q.required && !ok;
+                return html`
+                  <button type="button" key=${it.q.id}
+                          class=${'titem' + (it.index === index ? ' is-current' : '') +
+                                  (ok ? ' is-done' : '') + (need ? ' is-need' : '')}
+                          onClick=${() => onJump(it.index)}>
+                    <span class="titem__dot"></span>
+                    <span class="titem__text">${it.q.title}</span>
+                    ${need && html`<span class="titem__req">обов’язкове</span>`}
+                  </button>`;
+              })}
+            </section>`)}
+        </div>
+
+        <footer class="toc__foot">
+          <button class="btn--link" onClick=${onRestart}>Почати анкету заново</button>
+        </footer>
+      </aside>
+    </div>`;
+}
+
 /* =========================================================
    Застосунок
    ========================================================= */
@@ -496,7 +580,16 @@ function App() {
   const [flash, setFlash] = useState(false);
   const [sending, setSending] = useState(null);
   const [sent, setSent] = useState(saved.sent || null);
+  const [tocOpen, setTocOpen] = useState(false);
+  const [nudge, setNudge] = useState(false);
   const busy = useRef(false);
+
+  /* «поштовх» — коротка анімація, коли натиснули заблоковану кнопку */
+  const bump = useCallback(() => {
+    setNudge(false);
+    requestAnimationFrame(() => setNudge(true));
+    setTimeout(() => setNudge(false), 800);
+  }, []);
 
   /* фото підвантажуємо з IndexedDB один раз на старті */
   useEffect(() => {
@@ -567,11 +660,13 @@ function App() {
       const tag = (e.target.tagName || '').toLowerCase();
       if (e.key !== 'Enter') return;
       if (tag === 'textarea' || q.type === 'review' || sending) return;
-      if (canGo && !isLast) { e.preventDefault(); go(1); }
+      if (tocOpen) return;
+      e.preventDefault();
+      if (canGo && !isLast) go(1); else if (!canGo) bump();
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
-  }, [go, canGo, isLast, q.type, sending]);
+  }, [go, canGo, isLast, q.type, sending, tocOpen, bump]);
 
   const restart = () => {
     if (!confirm('Почати анкету заново? Усі відповіді буде стерто.')) return;
@@ -607,7 +702,12 @@ function App() {
     || (q.type === 'review' ? 'Надіслати анкету'
     : q.required || q.type === 'scale' || isAnswered(q, answers) ? 'Далі' : 'Пропустити');
 
-  const onNext = () => (q.type === 'review' ? submit() : go(1));
+  const onNext = () => {
+    if (!canGo) return bump();               /* не пускаємо далі — але пояснюємо, чому */
+    return q.type === 'review' ? submit() : go(1);
+  };
+
+  const jump = (i) => { setTocOpen(false); go(0, i); };
 
   return html`
     <${React.Fragment}>
@@ -618,7 +718,12 @@ function App() {
         <div class="topbar__logo"><img src=${meta.logo} alt=${meta.studio}/></div>
         <div class="topbar__meta">
           <span class=${'saved' + (flash ? ' is-on' : '')} aria-live="polite">${flash ? 'Збережено' : ''}</span>
-          ${index > 0 && html`<button class="btn--link" onClick=${restart}>Почати заново</button>`}
+          <button class="btn--toc" onClick=${() => setTocOpen(true)} aria-haspopup="dialog">
+            <svg width="15" height="12" viewBox="0 0 15 12" aria-hidden="true">
+              <path d="M0 1h15M0 6h15M0 11h9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            </svg>
+            Зміст
+          </button>
         </div>
       </header>
 
@@ -629,7 +734,7 @@ function App() {
           ? html`<${Review} key=${q.id} q=${q} phase=${phase} list=${list} answers=${answers}
                             onJump=${(i) => go(0, i)} sending=${sending}/>`
           : html`<${Question} key=${q.id} q=${q} num=${num} total=${total} phase=${phase}
-                              value=${answers[q.id]} onChange=${setAnswer}
+                              value=${answers[q.id]} onChange=${setAnswer} nudge=${nudge}
                               files=${files[q.id] || []} onFiles=${setQFiles}/>`}
       </main>
 
@@ -655,12 +760,23 @@ function App() {
                 </button>
               </div>`
             : html`
-              <button class="btn btn--primary" onClick=${onNext} disabled=${!canGo || !!sending}>
-                ${sending ? 'Надсилаємо…' : nextLabel}
-                ${!sending && html`<${Arrow}/>`}
-              </button>`}
+              <div class="nav__next">
+                ${!canGo && html`
+                  <div class=${'nav__hint' + (nudge ? ' is-nudge' : '')} role="status">
+                    ${lockHint(q)}
+                  </div>`}
+                <button class=${'btn btn--primary' + (canGo ? '' : ' is-locked') + (nudge ? ' is-nudge' : '')}
+                        onClick=${onNext} aria-disabled=${!canGo} disabled=${!!sending}>
+                  ${sending ? 'Надсилаємо…' : nextLabel}
+                  ${!sending && html`<${Arrow}/>`}
+                </button>
+              </div>`}
         </div>
       </footer>
+
+      ${tocOpen && html`
+        <${Toc} list=${list} answers=${answers} index=${index}
+                onJump=${jump} onClose=${() => setTocOpen(false)} onRestart=${restart}/>`}
 
       ${isLast && sent && html`
         <div class="sent-note">

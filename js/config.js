@@ -12,7 +12,7 @@ window.CONFIG = {
      Новий розгорток → Тип: Веб-застосунок → Доступ: «Усі» → Копіювати URL.
      Поки поле порожнє, квіз працює в демо-режимі:
      відповіді нікуди не надсилаються, але PDF-бриф формується. */
-  endpoint: '',
+  endpoint: 'https://script.google.com/macros/s/AKfycbzzgdtZ5ZkjT0B9DmHyESLjc2NUadJYdb2GVJxw8TyqZYjNiKWaUvMbDqujKUWtxDjGhw/exec',
 
   /* Скільки фото-референсів дозволяємо завантажити */
   maxFiles: 12,

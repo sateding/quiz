@@ -6,13 +6,14 @@
  *  ЩО ЦЕ РОБИТЬ
  *  1. Записує кожну відповідь новим рядком у таблицю.
  *  2. Складає фото-референси в окрему папку клієнта на Drive.
- *  3. Надсилає дизайнеру лист про нову анкету.
+ *  3. Надсилає повний бриф дизайнеру.
+ *  4. Надсилає копію брифу клієнту на вказану ним пошту.
  *
  *  ЯК ЗАПУСТИТИ (5 хвилин, один раз)
  *  1. Відкрити таблицю «Анкети клієнтів · Dina Titanova».
  *  2. Розширення → Apps Script.
  *  3. Стерти те, що там є, і вставити цей файл цілком.
- *  4. Унизу вписати свій email у NOTIFY_EMAIL.
+ *  4. Угорі вписати свій email у NOTIFY_EMAIL.
  *  5. Зберегти (Ctrl+S).
  *  6. Розгорнути → Новий розгорток → шестерня → Веб-застосунок.
  *       Виконувати від імені: Я
@@ -31,8 +32,16 @@
 /** Куди складати фото-референси. Уже створена папка «Референси клієнтів». */
 var FOLDER_ID = '12Qmtc9Oc3tNRRwMs9Fhwde3Wf0WGPohh';
 
-/** Кому надсилати сповіщення про нову анкету. Порожньо — не надсилати. */
+/** Пошта дизайнера — сюди приходить повний бриф і посилання. Порожньо — не надсилати. */
 var NOTIFY_EMAIL = '';
+
+/** Надсилати копію брифу клієнту на пошту, яку він вказав в анкеті. */
+var SEND_COPY_TO_CLIENT = true;
+
+/** Підпис у листі клієнту. */
+var STUDIO_NAME  = 'Dina Titanova · Interior Design';
+var STUDIO_PHONE = '';
+var STUDIO_SITE  = '';
 
 /** Назва аркуша з відповідями. */
 var SHEET_NAME = 'Анкети';
@@ -159,43 +168,87 @@ function ensureFolder(submissionId, clientName) {
    ============================================================ */
 
 function notify(payload, folderUrl) {
-  if (!NOTIFY_EMAIL) return;
-  try {
-    var a = payload.answers || {};
-    var c = a.contacts || {};
-    var readable = (payload.readable || []).filter(function (r) { return r.answer; });
+  var a = payload.answers || {};
+  var c = a.contacts || {};
+  var readable = (payload.readable || []).filter(function (r) { return r.answer; });
+  var brief = briefTable(readable);
 
-    var rows = readable.map(function (r) {
-      return '<tr>' +
-        '<td style="padding:6px 14px 6px 0;color:#6E675C;font-size:13px;vertical-align:top;width:40%">' +
-          escapeHtml(r.question) + '</td>' +
-        '<td style="padding:6px 0;font-size:14px;vertical-align:top;white-space:pre-line">' +
-          escapeHtml(r.answer) + '</td></tr>';
-    }).join('');
+  /* --- лист дизайнеру --- */
+  if (NOTIFY_EMAIL) {
+    try {
+      MailApp.sendEmail({
+        to: NOTIFY_EMAIL,
+        subject: 'Нова анкета: ' + (c.name || 'без імені'),
+        htmlBody:
+          '<div style="font-family:Helvetica,Arial,sans-serif;max-width:720px;color:#17150F">' +
+            '<h2 style="font-weight:400;font-size:22px;margin:0 0 6px">Нова заповнена анкета</h2>' +
+            '<p style="margin:0;color:#6E675C;font-size:14px">' +
+              [c.name, c.phone, c.email, c.prefer].filter(String).map(escapeHtml).join(' · ') +
+            '</p>' +
+            '<p style="margin:18px 0 6px;font-size:14px">' +
+              '<a href="' + folderUrl + '">Папка з референсами</a> · ' +
+              '<a href="' + SpreadsheetApp.getActiveSpreadsheet().getUrl() + '">Таблиця з усіма анкетами</a>' +
+            '</p>' +
+            brief +
+          '</div>'
+      });
+    } catch (err) { Logger.log('Лист дизайнеру не пішов: ' + err); }
+  }
 
-    var html =
-      '<div style="font-family:Helvetica,Arial,sans-serif;max-width:680px">' +
-      mailHeader(c) +
-      '<p style="margin:18px 0 6px"><a href="' + folderUrl + '">Папка з референсами</a> · ' +
-        '<a href="' + SpreadsheetApp.getActiveSpreadsheet().getUrl() + '">Таблиця з усіма анкетами</a></p>' +
-      '<table style="border-collapse:collapse;width:100%;margin-top:16px">' + rows + '</table>' +
-      '</div>';
-
-    MailApp.sendEmail({
-      to: NOTIFY_EMAIL,
-      subject: 'Нова анкета: ' + (c.name || 'без імені'),
-      htmlBody: html
-    });
-  } catch (err) {
-    Logger.log('Лист не надіслано: ' + err);
+  /* --- копія клієнту --- */
+  if (SEND_COPY_TO_CLIENT && c.email && /.+@.+\..+/.test(c.email)) {
+    try {
+      MailApp.sendEmail({
+        to: c.email,
+        name: STUDIO_NAME,
+        subject: 'Ваш бриф на дизайн-проєкт',
+        htmlBody:
+          '<div style="font-family:Helvetica,Arial,sans-serif;max-width:720px;color:#17150F">' +
+            '<h2 style="font-weight:400;font-size:23px;margin:0 0 14px">' +
+              escapeHtml(c.name ? c.name + ', дякуємо!' : 'Дякуємо!') + '</h2>' +
+            '<p style="font-size:15px;line-height:1.6;color:#4A443B;margin:0 0 8px">' +
+              'Ваші відповіді отримано. Нижче — копія брифу: перечитайте на свіжу голову, ' +
+              'і якщо щось захочеться доповнити чи виправити, просто відповідайте на цей лист.' +
+            '</p>' +
+            '<p style="font-size:15px;line-height:1.6;color:#4A443B;margin:0 0 4px">' +
+              'Найближчим часом ми зв\'яжемося з вами, щоб домовитися про заміри ' +
+              'та першу зустріч на об\'єкті.' +
+            '</p>' +
+            brief +
+            '<p style="margin-top:26px;padding-top:14px;border-top:1px solid #E7E0D5;' +
+                      'font-size:13px;color:#6E675C">' +
+              escapeHtml(STUDIO_NAME) +
+              (STUDIO_PHONE ? '<br>' + escapeHtml(STUDIO_PHONE) : '') +
+              (STUDIO_SITE ? '<br>' + escapeHtml(STUDIO_SITE) : '') +
+            '</p>' +
+          '</div>'
+      });
+    } catch (err) { Logger.log('Лист клієнту не пішов: ' + err); }
   }
 }
 
-function mailHeader(c) {
-  return '<h2 style="font-weight:400;font-size:22px;margin:0 0 4px">Нова заповнена анкета</h2>' +
-    '<p style="margin:0;color:#6E675C;font-size:14px">' +
-      [c.name, c.phone, c.email, c.prefer].filter(String).map(escapeHtml).join(' · ') +
-    '</p>';
+/** Бриф у вигляді таблиці «питання — відповідь», згрупованої по розділах. */
+function briefTable(readable) {
+  var html = '<table style="border-collapse:collapse;width:100%;margin-top:20px">';
+  var section = null;
+
+  readable.forEach(function (r) {
+    if (r.section && r.section !== section) {
+      section = r.section;
+      html += '<tr><td colspan="2" style="padding:20px 0 7px">' +
+              '<div style="font-size:11px;font-weight:700;letter-spacing:.16em;' +
+                          'text-transform:uppercase;color:#856A2C;' +
+                          'border-bottom:1px solid #E7E0D5;padding-bottom:6px">' +
+                escapeHtml(section) + '</div></td></tr>';
+    }
+    html += '<tr>' +
+      '<td style="padding:7px 16px 7px 0;color:#6E675C;font-size:13px;' +
+                 'vertical-align:top;width:38%;line-height:1.4">' + escapeHtml(r.question) + '</td>' +
+      '<td style="padding:7px 0;font-size:14px;vertical-align:top;line-height:1.45">' +
+        escapeHtml(r.answer).replace(/\n/g, '<br>') + '</td></tr>';
+  });
+
+  return html + '</table>';
 }
 
 function escapeHtml(s) {
