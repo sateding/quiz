@@ -33,7 +33,7 @@
 var FOLDER_ID = '12Qmtc9Oc3tNRRwMs9Fhwde3Wf0WGPohh';
 
 /** Пошта дизайнера — сюди приходить повний бриф і посилання. Порожньо — не надсилати. */
-var NOTIFY_EMAIL = '';
+var NOTIFY_EMAIL = 'satedcl@gmail.com';
 
 /** Надсилати копію брифу клієнту на пошту, яку він вказав в анкеті. */
 var SEND_COPY_TO_CLIENT = true;
@@ -45,6 +45,14 @@ var STUDIO_SITE  = '';
 
 /** Назва аркуша з відповідями. */
 var SHEET_NAME = 'Анкети';
+
+/** Логотип у шапці PDF. Береться з опублікованого сайту.
+    ⚠ Якщо переїдете на інший хостинг — поміняйте цю адресу,
+    інакше в PDF на місці логотипа буде порожньо. */
+var LOGO_URL = 'https://sateding.github.io/quiz/img/logo.png';
+
+/** Складати PDF-бриф: класти в папку клієнта і чіпляти до листів. */
+var MAKE_PDF = true;
 
 
 /* ============================================================
@@ -123,9 +131,23 @@ function saveAnswers(payload) {
   sheet.setFrozenRows(1);
   sheet.setRowHeight(1, 64);
 
-  notify(payload, folderUrl);
+  var pdf = null;
+  if (MAKE_PDF) {
+    try {
+      pdf = makePdf(payload, ensureFolder(payload.submissionId, c.name));
+    } catch (err) {
+      Logger.log('PDF не зібрався: ' + err);
+    }
+  }
 
-  return { ok: true, submissionId: payload.submissionId, folderUrl: folderUrl };
+  notify(payload, folderUrl, pdf);
+
+  return {
+    ok: true,
+    submissionId: payload.submissionId,
+    folderUrl: folderUrl,
+    pdfUrl: pdf ? pdf.getUrl() : ''
+  };
 }
 
 
@@ -167,11 +189,12 @@ function ensureFolder(submissionId, clientName) {
    Лист дизайнеру
    ============================================================ */
 
-function notify(payload, folderUrl) {
+function notify(payload, folderUrl, pdfFile) {
   var a = payload.answers || {};
   var c = a.contacts || {};
   var readable = (payload.readable || []).filter(function (r) { return r.answer; });
   var brief = briefTable(readable);
+  var attach = pdfFile ? [pdfFile.getBlob()] : [];
 
   /* --- лист дизайнеру --- */
   if (NOTIFY_EMAIL) {
@@ -179,6 +202,7 @@ function notify(payload, folderUrl) {
       MailApp.sendEmail({
         to: NOTIFY_EMAIL,
         subject: 'Нова анкета: ' + (c.name || 'без імені'),
+        attachments: attach,
         htmlBody:
           '<div style="font-family:Helvetica,Arial,sans-serif;max-width:720px;color:#17150F">' +
             '<h2 style="font-weight:400;font-size:22px;margin:0 0 6px">Нова заповнена анкета</h2>' +
@@ -187,6 +211,7 @@ function notify(payload, folderUrl) {
             '</p>' +
             '<p style="margin:18px 0 6px;font-size:14px">' +
               '<a href="' + folderUrl + '">Папка з референсами</a> · ' +
+              (pdfFile ? '<a href="' + pdfFile.getUrl() + '">Бриф PDF</a> · ' : '') +
               '<a href="' + SpreadsheetApp.getActiveSpreadsheet().getUrl() + '">Таблиця з усіма анкетами</a>' +
             '</p>' +
             brief +
@@ -202,12 +227,14 @@ function notify(payload, folderUrl) {
         to: c.email,
         name: STUDIO_NAME,
         subject: 'Ваш бриф на дизайн-проєкт',
+        attachments: attach,
         htmlBody:
           '<div style="font-family:Helvetica,Arial,sans-serif;max-width:720px;color:#17150F">' +
             '<h2 style="font-weight:400;font-size:23px;margin:0 0 14px">' +
               escapeHtml(c.name ? c.name + ', дякуємо!' : 'Дякуємо!') + '</h2>' +
             '<p style="font-size:15px;line-height:1.6;color:#4A443B;margin:0 0 8px">' +
-              'Ваші відповіді отримано. Нижче — копія брифу: перечитайте на свіжу голову, ' +
+              'Ваші відповіді отримано. У вкладенні — бриф у PDF, нижче те саме текстом: ' +
+              'перечитайте на свіжу голову, ' +
               'і якщо щось захочеться доповнити чи виправити, просто відповідайте на цей лист.' +
             '</p>' +
             '<p style="font-size:15px;line-height:1.6;color:#4A443B;margin:0 0 4px">' +
@@ -265,4 +292,77 @@ function json(obj) {
   return ContentService
     .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+
+/* ============================================================
+   PDF-бриф
+   ------------------------------------------------------------
+   Збираємо HTML і просимо Google перетворити його на PDF.
+   Конвертер розуміє лише просту верстку, тому все на таблицях.
+   ============================================================ */
+
+function makePdf(payload, folder) {
+  var a = payload.answers || {};
+  var c = a.contacts || {};
+  var readable = (payload.readable || []).filter(function (r) { return r.answer; });
+
+  var stamp = Utilities.formatDate(new Date(), 'Europe/Kiev', 'yyyy-MM-dd');
+  var human = Utilities.formatDate(new Date(), 'Europe/Kiev', 'dd.MM.yyyy');
+
+  var rows = '';
+  var section = null;
+  readable.forEach(function (r) {
+    if (r.section && r.section !== section) {
+      section = r.section;
+      rows += '<tr><td colspan="2" class="sec">' + escapeHtml(section) + '</td></tr>';
+    }
+    rows += '<tr><td class="q">' + escapeHtml(r.question) + '</td>' +
+            '<td class="a">' + escapeHtml(r.answer).replace(/\n/g, '<br>') + '</td></tr>';
+  });
+
+  var html =
+    '<!doctype html><html><head><meta charset="utf-8"><style>' +
+    'body{font-family:Arial,Helvetica,sans-serif;color:#17150F;font-size:10pt;margin:0}' +
+    'h1{font-family:Georgia,serif;font-size:21pt;font-weight:normal;margin:0 0 5px}' +
+    '.head{border-bottom:2px solid #C2A24B;padding-bottom:12px;margin-bottom:6px}' +
+    '.logo{height:46px}' +
+    '.meta{color:#666;font-size:9.5pt;margin:0}' +
+    '.date{color:#999;font-size:9pt;margin:3px 0 0}' +
+    'table.b{width:100%;border-collapse:collapse}' +
+    'td{vertical-align:top}' +
+    'td.sec{font-size:8.5pt;font-weight:bold;letter-spacing:1.6px;text-transform:uppercase;' +
+      'color:#856A2C;padding:18px 0 5px;border-bottom:1px solid #DDD5C8}' +
+    'td.q{width:38%;color:#666;font-size:9pt;padding:6px 14px 6px 0;' +
+      'border-bottom:1px solid #F0EBE2;line-height:1.35}' +
+    'td.a{font-size:9.5pt;padding:6px 0;border-bottom:1px solid #F0EBE2;line-height:1.4}' +
+    '.foot{margin-top:26px;padding-top:9px;border-top:1px solid #DDD5C8;' +
+      'color:#999;font-size:8pt;letter-spacing:1.2px;text-transform:uppercase}' +
+    '</style></head><body>' +
+
+      '<table class="head" width="100%"><tr>' +
+        '<td width="150"><img class="logo" src="' + LOGO_URL + '" alt="' + escapeHtml(STUDIO_NAME) + '"></td>' +
+        '<td>' +
+          '<h1>Бриф на дизайн-проєкт</h1>' +
+          '<p class="meta">' +
+            escapeHtml([c.name, c.phone, c.email].filter(String).join(' · ') || 'Контакти не вказано') +
+          '</p>' +
+          '<p class="date">' + human + '</p>' +
+        '</td>' +
+      '</tr></table>' +
+
+      '<table class="b">' + rows + '</table>' +
+      '<div class="foot">' + escapeHtml(STUDIO_NAME) + '</div>' +
+    '</body></html>';
+
+  var name = 'Бриф · ' + (c.name || 'без імені') + ' · ' + stamp + '.pdf';
+  var blob = Utilities.newBlob(html, 'text/html', 'brief.html')
+                      .getAs('application/pdf')
+                      .setName(name);
+
+  /* якщо перезаповнили — перезаписуємо, а не плодимо копії */
+  var old = folder.getFilesByName(name);
+  while (old.hasNext()) old.next().setTrashed(true);
+
+  return folder.createFile(blob);
 }

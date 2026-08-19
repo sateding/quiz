@@ -391,7 +391,7 @@ function Question({ q, num, total, phase, value, onChange, files, onFiles, nudge
 }
 
 /* Екран перевірки перед надсиланням */
-function Review({ q, phase, list, answers, onJump, sending }) {
+function Review({ q, phase, list, answers, onJump, sending, missing }) {
   /* групуємо за полем section — так кожне приміщення отримує свій заголовок */
   const groups = [];
   const byTitle = {};
@@ -413,6 +413,21 @@ function Review({ q, phase, list, answers, onJump, sending }) {
         ${q.hint && html`<p class="cover__lead">${q.hint}</p>`}
         <p class="review__stat">Заповнено <b>${answered}</b> із ${totalQ} питань.
           ${answered < totalQ ? ' Порожні можна лишити як є — вони просто не потраплять у бриф.' : ''}</p>
+
+        ${missing.length > 0 && html`
+          <div class="missing">
+            <p class="missing__title">
+              Спершу заповніть ${missing.length === 1 ? 'одне обов’язкове питання' : `обов’язкові питання (${missing.length})`}
+            </p>
+            <ul class="missing__list">
+              ${missing.map(m => html`
+                <li key=${m.q.id}>
+                  <button type="button" onClick=${() => onJump(m.index)} disabled=${!!sending}>
+                    ${m.q.title}
+                  </button>
+                </li>`)}
+            </ul>
+          </div>`}
       </div>
 
       <div class="review__body">
@@ -481,7 +496,12 @@ function Brief({ list, answers, files }) {
 }
 
 /* Підказка на заблокованій кнопці «Далі» */
-function lockHint(q) {
+function lockHint(q, missing) {
+  if (q.type === 'review') {
+    return missing && missing.length === 1
+      ? 'Лишилося одне обов’язкове питання'
+      : `Лишилося обов’язкових питань: ${missing ? missing.length : 0}`;
+  }
   if (q.requiredHint) return q.requiredHint;
   switch (q.type) {
     case 'single': case 'photoSingle':
@@ -652,7 +672,16 @@ function App() {
     }, OUT_MS);
   }, [index, list.length]);
 
-  const canGo = !q.required || isAnswered(q, answers);
+  /* обовʼязкові питання, які лишилися порожніми — через зміст їх можна перестрибнути */
+  const missing = useMemo(
+    () => list.map((x, i) => ({ q: x, index: i }))
+              .filter(m => m.q.required && m.q.type !== 'review' && !isAnswered(m.q, answers)),
+    [list, answers]
+  );
+
+  const canGo = q.type === 'review'
+    ? missing.length === 0
+    : (!q.required || isAnswered(q, answers));
   const isLast = index === list.length - 1;
 
   useEffect(() => {
@@ -732,7 +761,7 @@ function App() {
           ? html`<${Cover} key=${q.id} q=${q} phase=${phase}/>`
           : q.type === 'review'
           ? html`<${Review} key=${q.id} q=${q} phase=${phase} list=${list} answers=${answers}
-                            onJump=${(i) => go(0, i)} sending=${sending}/>`
+                            onJump=${(i) => go(0, i)} sending=${sending} missing=${missing}/>`
           : html`<${Question} key=${q.id} q=${q} num=${num} total=${total} phase=${phase}
                               value=${answers[q.id]} onChange=${setAnswer} nudge=${nudge}
                               files=${files[q.id] || []} onFiles=${setQFiles}/>`}
@@ -763,7 +792,7 @@ function App() {
               <div class="nav__next">
                 ${!canGo && html`
                   <div class=${'nav__hint' + (nudge ? ' is-nudge' : '')} role="status">
-                    ${lockHint(q)}
+                    ${lockHint(q, missing)}
                   </div>`}
                 <button class=${'btn btn--primary' + (canGo ? '' : ' is-locked') + (nudge ? ' is-nudge' : '')}
                         onClick=${onNext} aria-disabled=${!canGo} disabled=${!!sending}>

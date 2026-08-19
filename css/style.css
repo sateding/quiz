@@ -985,3 +985,31 @@ textarea.field--short{ min-height:84px; }
 }
 
 @media print{ .toc{ display:none !important; } }
+
+/* =========================================================
+   Незаповнені обов’язкові питання на екрані перевірки
+   ========================================================= */
+.missing{
+  margin-top:22px;
+  padding:16px 18px;
+  border:1px solid #E8CFC6;
+  border-left:3px solid var(--err);
+  border-radius:var(--r-card);
+  background:#FDF6F3;
+  animation:optIn .4s var(--ease) both;
+}
+.missing__title{
+  font-size:14px; font-weight:600; color:var(--err);
+  margin-bottom:8px;
+}
+.missing__list{ margin:0; padding:0; list-style:none; }
+.missing__list li + li{ margin-top:2px; }
+.missing__list button{
+  border:0; background:none; padding:3px 0; cursor:pointer;
+  font-size:14.5px; line-height:1.45; color:var(--ink);
+  text-align:left;
+  text-decoration:underline; text-underline-offset:3px;
+  text-decoration-color:#D9BAB1;
+}
+.missing__list button:hover{ text-decoration-color:var(--err); color:var(--err); }
+.missing__list button[disabled]{ opacity:.5; cursor:default; }
