@@ -588,7 +588,7 @@ function Toc({ list, answers, index, onJump, onClose, onRestart }) {
    Панель тестування — тільки за адресою ?test
    ========================================================= */
 
-function TestBar({ onFill, onSend, onReset, busy }) {
+function TestBar({ onFill, onSend, onSendNow, onReset, busy }) {
   return html`
     <div class="testbar">
       <span class="testbar__tag">Тестовий режим</span>
@@ -597,6 +597,9 @@ function TestBar({ onFill, onSend, onReset, busy }) {
       </button>
       <button class="testbar__btn testbar__btn--go" onClick=${onSend} disabled=${busy}>
         ${busy ? 'Надсилаємо…' : 'Заповнити й надіслати'}
+      </button>
+      <button class="testbar__btn" onClick=${onSendNow} disabled=${busy}>
+        Надіслати як є
       </button>
       <button class="testbar__btn testbar__btn--ghost" onClick=${onReset} disabled=${busy}>
         Очистити
@@ -788,6 +791,9 @@ function App() {
     window.scrollTo({ top: 0 });
   };
 
+  /* надсилає рівно те, що зараз заповнено — хоч порожню анкету */
+  const testSendNow = () => submit(answers, allFiles);
+
   const testSend = async () => {
     const { ans, files: f } = buildTestData();
     setAnswers(ans);
@@ -865,7 +871,8 @@ function App() {
                 onJump=${jump} onClose=${() => setTocOpen(false)} onRestart=${restart}/>`}
 
       ${testMode && html`
-        <${TestBar} onFill=${testFill} onSend=${testSend} onReset=${restart} busy=${!!sending}/>`}
+        <${TestBar} onFill=${testFill} onSend=${testSend} onSendNow=${testSendNow}
+                    onReset=${restart} busy=${!!sending}/>`}
 
       ${isLast && sent && html`
         <div class="sent-note">
