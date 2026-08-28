@@ -585,6 +585,26 @@ function Toc({ list, answers, index, onJump, onClose, onRestart }) {
 }
 
 /* =========================================================
+   Панель тестування — тільки за адресою ?test
+   ========================================================= */
+
+function TestBar({ onFill, onSend, onReset, busy }) {
+  return html`
+    <div class="testbar">
+      <span class="testbar__tag">Тестовий режим</span>
+      <button class="testbar__btn" onClick=${onFill} disabled=${busy}>
+        Заповнити всю анкету
+      </button>
+      <button class="testbar__btn testbar__btn--go" onClick=${onSend} disabled=${busy}>
+        ${busy ? 'Надсилаємо…' : 'Заповнити й надіслати'}
+      </button>
+      <button class="testbar__btn testbar__btn--ghost" onClick=${onReset} disabled=${busy}>
+        Очистити
+      </button>
+    </div>`;
+}
+
+/* =========================================================
    Застосунок
    ========================================================= */
 
@@ -601,6 +621,8 @@ function App() {
   const [sending, setSending] = useState(null);
   const [sent, setSent] = useState(saved.sent || null);
   const [tocOpen, setTocOpen] = useState(false);
+  const testMode = useMemo(
+    () => /(^|[?&#])test(=|&|$)/.test(location.search + location.hash), []);
   const [nudge, setNudge] = useState(false);
   const busy = useRef(false);
 
@@ -704,18 +726,22 @@ function App() {
     setAnswers({}); setFiles({}); setIndex(0); setPhase('in'); setSent(null);
   };
 
-  const submit = async () => {
-    setSending({ stage: 'answers', done: 0, total: 1 + allFiles.length });
+  const submit = async (ansOverride, filesOverride) => {
+    const ans = ansOverride || answers;
+    const fls = filesOverride || allFiles;
+    const vis = all.filter(x => !x.showIf || x.showIf(ans));
+
+    setSending({ stage: 'answers', done: 0, total: 1 + fls.length });
     const payload = {
       submissionId: 'q' + Date.now().toString(36),
       submittedAt: new Date().toISOString(),
-      answers,
-      readable: list
+      answers: ans,
+      readable: vis
         .filter(x => x.type !== 'cover' && x.type !== 'review')
-        .map(x => ({ id: x.id, section: x.section || '', question: x.title, answer: formatAnswer(x, answers[x.id]) }))
+        .map(x => ({ id: x.id, section: x.section || '', question: x.title, answer: formatAnswer(x, ans[x.id]) }))
     };
     try {
-      const res = await window.STORE.submit(payload, allFiles, setSending);
+      const res = await window.STORE.submit(payload, fls, setSending);
       setSent(res.demo ? { demo: true } : { ok: true, at: payload.submittedAt, folderUrl: res.folderUrl });
     } catch (e) {
       console.error(e);
@@ -737,6 +763,37 @@ function App() {
   };
 
   const jump = (i) => { setTocOpen(false); go(0, i); };
+
+  /* ---------- тестовий режим ---------- */
+
+  const buildTestData = () => {
+    const ans = window.TESTDATA.generate(all);
+    const file = window.TESTDATA.sampleFile();
+    const upload = all.find(x => x.type === 'upload');
+    if (upload) {
+      ans[upload.id] = [{ name: file.name, size: file.size, type: file.type }];
+    }
+    return { ans, files: upload ? { [upload.id]: [file] } : {} };
+  };
+
+  const testFill = () => {
+    const { ans, files: f } = buildTestData();
+    setAnswers(ans);
+    setFiles(f);
+    window.STORE.idbSet('files', f);
+    const vis = all.filter(x => !x.showIf || x.showIf(ans));
+    const idx = vis.findIndex(x => x.type === 'review');
+    setIndex(idx > -1 ? idx : vis.length - 1);
+    setPhase('in');
+    window.scrollTo({ top: 0 });
+  };
+
+  const testSend = async () => {
+    const { ans, files: f } = buildTestData();
+    setAnswers(ans);
+    setFiles(f);
+    await submit(ans, Object.values(f).flat());
+  };
 
   return html`
     <${React.Fragment}>
@@ -807,10 +864,17 @@ function App() {
         <${Toc} list=${list} answers=${answers} index=${index}
                 onJump=${jump} onClose=${() => setTocOpen(false)} onRestart=${restart}/>`}
 
+      ${testMode && html`
+        <${TestBar} onFill=${testFill} onSend=${testSend} onReset=${restart} busy=${!!sending}/>`}
+
       ${isLast && sent && html`
         <div class="sent-note">
           ${sent.error
-            ? html`<p class="is-err">Не вдалося надіслати автоматично. Збережіть бриф у PDF і надішліть його нам — нічого не втрачено.</p>`
+            ? html`
+              <p class="is-err">
+                Не вдалося надіслати автоматично. Збережіть бриф у PDF і надішліть його нам — нічого не втрачено.
+                ${sent.message && html`<br/><code>${sent.message}</code>`}
+              </p>`
             : sent.demo
             ? html`<p>Демо-режим: адресу для надсилання ще не вписано в <code>js/config.js</code>. Бриф у PDF формується як зазвичай.</p>`
             : html`<p>Відповіді надіслано.</p>`}

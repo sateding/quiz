@@ -1013,3 +1013,45 @@ textarea.field--short{ min-height:84px; }
 }
 .missing__list button:hover{ text-decoration-color:var(--err); color:var(--err); }
 .missing__list button[disabled]{ opacity:.5; cursor:default; }
+
+/* =========================================================
+   Панель тестування (?test) — клієнти її не бачать
+   ========================================================= */
+.testbar{
+  position:fixed; left:16px; bottom:16px; z-index:120;
+  display:flex; flex-wrap:wrap; align-items:center; gap:8px;
+  padding:10px 12px;
+  background:var(--ink); color:#fff;
+  border-radius:12px;
+  box-shadow:var(--sh-3);
+  animation:hintIn .3s var(--ease) both;
+}
+.testbar__tag{
+  font-size:10px; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--gold);
+  padding-right:4px;
+}
+.testbar__btn{
+  padding:8px 14px;
+  border:1px solid rgba(255,255,255,.22);
+  border-radius:var(--r-pill);
+  background:transparent; color:#fff;
+  font-size:13px; font-weight:600; cursor:pointer;
+  transition:background-color .18s, border-color .18s, opacity .18s;
+}
+.testbar__btn:hover{ background:rgba(255,255,255,.12); border-color:rgba(255,255,255,.4); }
+.testbar__btn--go{ background:var(--gold); border-color:var(--gold); color:var(--ink); }
+.testbar__btn--go:hover{ background:#D4B463; border-color:#D4B463; }
+.testbar__btn--ghost{ border-color:transparent; color:rgba(255,255,255,.6); }
+.testbar__btn--ghost:hover{ color:#fff; background:rgba(255,255,255,.1); }
+.testbar__btn[disabled]{ opacity:.45; cursor:not-allowed; }
+
+@media (max-width:639px){
+  .testbar{
+    left:8px; right:8px; bottom:auto; top:8px;
+    justify-content:center; padding:8px;
+  }
+  .testbar__btn{ padding:7px 11px; font-size:12px; }
+}
+
+@media print{ .testbar{ display:none !important; } }

@@ -104,7 +104,17 @@
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const txt = await r.text();
-    try { return JSON.parse(txt); } catch (e) { return { ok: true, raw: txt }; }
+
+    let data;
+    try { data = JSON.parse(txt); }
+    catch (e) { return { ok: true, raw: txt }; }
+
+    /* Apps Script віддає власні помилки зі звичайним кодом 200 —
+       без цієї перевірки вони виглядали б як успішне надсилання. */
+    if (data && data.ok === false) {
+      throw new Error(data.error || 'Приймач повернув помилку без пояснення');
+    }
+    return data;
   }
 
   /**
