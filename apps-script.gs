@@ -33,7 +33,7 @@
 var FOLDER_ID = '12Qmtc9Oc3tNRRwMs9Fhwde3Wf0WGPohh';
 
 /** Пошта дизайнера — сюди приходить повний бриф і посилання. Порожньо — не надсилати. */
-var NOTIFY_EMAIL = 'satedcl@gmail.com';
+var NOTIFY_EMAIL = 'nz@intop.dp.ua';
 
 /** Надсилати копію брифу клієнту на пошту, яку він вказав в анкеті. */
 var SEND_COPY_TO_CLIENT = true;
