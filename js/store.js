@@ -108,16 +108,31 @@
   }
 
   /**
-   * Надсилає відповіді, потім файли — по одному, з повідомленням про прогрес.
+   * Надсилає анкету одним запитом: відповіді + фото разом.
+   * Тоді приймач може одразу прикріпити все до листа.
+   * Якщо вкладень забагато — повертаємось до старої схеми
+   * «спершу відповіді, потім файли по одному».
    * onProgress({ stage, done, total })
    */
   async function submit(payload, files, onProgress) {
     const url = (window.CONFIG && window.CONFIG.endpoint || '').trim();
     if (!url) return { ok: false, demo: true };
 
+    const bytes = files.reduce((n, f) => n + (f.dataUrl ? f.dataUrl.length : 0), 0);
+    const cap = (window.CONFIG && window.CONFIG.maxPayloadMb || 24) * 1024 * 1024;
+
+    /* звичайний шлях — один запит */
+    if (bytes < cap) {
+      onProgress({ stage: 'answers', done: 0, total: 1 });
+      const res = await post(url, { kind: 'submission', payload, files });
+      onProgress({ stage: 'done', done: 1, total: 1 });
+      return { ok: true, submissionId: res.submissionId, sentTo: res.sentTo, folderUrl: res.folderUrl };
+    }
+
+    /* запасний шлях — коли фото не влізають в один запит */
     onProgress({ stage: 'answers', done: 0, total: 1 + files.length });
-    const res = await post(url, { kind: 'answers', payload });
-    const submissionId = res.submissionId || res.id || payload.submissionId;
+    const res = await post(url, { kind: 'submission', payload, files: [] });
+    const submissionId = res.submissionId || payload.submissionId;
 
     for (let i = 0; i < files.length; i++) {
       onProgress({ stage: 'files', done: 1 + i, total: 1 + files.length, name: files[i].name });
@@ -133,7 +148,7 @@
       }
     }
     onProgress({ stage: 'done', done: 1 + files.length, total: 1 + files.length });
-    return { ok: true, submissionId, folderUrl: res.folderUrl };
+    return { ok: true, submissionId, sentTo: res.sentTo };
   }
 
   window.STORE = { idbGet, idbSet, idbClear, compressImage, submit };
