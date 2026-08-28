@@ -7,12 +7,12 @@
 
 window.CONFIG = {
 
-  /* Адреса веб-застосунку Apps Script.
-     Отримується так: Розширення → Apps Script → Розгорнути →
-     Новий розгорток → Тип: Веб-застосунок → Доступ: «Усі» → Копіювати URL.
+  /* Адреса приймача — окремий скрипт на script.google.com.
+     У його розгортку «Хто має доступ» має стояти «Усі»,
+     інакше клієнта перекидає на сторінку входу Google.
      Поки поле порожнє, квіз працює в демо-режимі:
      відповіді нікуди не надсилаються, але PDF-бриф формується. */
-  endpoint: 'https://script.google.com/macros/s/AKfycbzzgdtZ5ZkjT0B9DmHyESLjc2NUadJYdb2GVJxw8TyqZYjNiKWaUvMbDqujKUWtxDjGhw/exec',
+  endpoint: 'https://script.google.com/macros/s/AKfycbyRb8vGaipIPMLu2qg6jc_NYJIPg2BDNB8g3poQdS48V5c4W3yA6fq_OQF9wZE9WmTt/exec',
 
   /* Скільки фото-референсів дозволяємо завантажити */
   maxFiles: 12,

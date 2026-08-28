@@ -1,27 +1,28 @@
 /**
  * ============================================================
  *  Приймач анкети · Dina Titanova
+ *  Тільки пошта. Ніяких таблиць і Диска.
  * ============================================================
  *
  *  ЩО ЦЕ РОБИТЬ
  *  Після заповнення анкети надсилає лист із брифом у PDF:
- *    · дизайнеру — на адресу SEND_TO;
- *    · клієнту   — на пошту, яку він вказав в анкеті.
- *  Фото-референси йдуть вкладенням у тому ж листі.
+ *    · дизайнеру — на адресу SEND_TO, разом із фото-референсами;
+ *    · клієнту   — на пошту, яку він вказав в анкеті, лише бриф.
+ *  Нічого нікуди не зберігається.
  *
- *  Таблиця і Google Диск за замовчуванням ВИМКНЕНІ — нічого
- *  нікуди не зберігається, працює тільки пошта.
- *  Якщо колись знадобиться архів — поставте SAVE_TO_SHEET
- *  або SAVE_TO_DRIVE у true.
+ *  ЯК ЗАПУСТИТИ (3 хвилини, один раз)
+ *  1. Відкрити script.google.com → «Новий проєкт».
+ *  2. Стерти те, що там є, і вставити цей файл цілком.
+ *  3. Назвати проєкт, напр. «Анкета Dina Titanova». Ctrl+S.
+ *  4. Розгорнути → Новий розгорток → шестерня ⚙ → Веб-застосунок.
+ *       Виконувати від імені: Я
+ *       Хто має доступ: Усі
+ *     → Розгорнути → дозволити доступ (потрібен лише Gmail) → скопіювати URL.
+ *  5. Вставити URL у js/config.js квіза, у поле endpoint.
  *
- *  ЯК ОНОВИТИ (2 хвилини)
- *  1. Відкрити таблицю «Анкети клієнтів» → Розширення → Apps Script.
- *     (Таблиця лишається домівкою скрипта, але записів у ній не буде.)
- *  2. Стерти все, що там є, і вставити цей файл цілком.
- *  3. Ctrl+S.
- *  4. Розгорнути → Керувати розгортками → олівець ✏️
- *     → Версія: Нова → Розгорнути.
- *     ⚠ Без цього кроку працюватиме стара версія. Адреса /exec не зміниться.
+ *  ЯК ОНОВИТИ ПОТІМ
+ *  Вставити новий код → Ctrl+S → Розгорнути → Керувати розгортками →
+ *  олівець ✏ → Версія: Нова → Розгорнути. Адреса при цьому не міняється.
  * ============================================================
  */
 
@@ -42,14 +43,6 @@ var STUDIO_SITE  = 'https://sateding.github.io/quiz/';
     Якщо переїдете на інший хостинг — поміняйте адресу. */
 var LOGO_URL = 'https://sateding.github.io/quiz/img/logo.png';
 
-/** Архів. Вимкнено: працює тільки пошта. */
-var SAVE_TO_SHEET = false;
-var SAVE_TO_DRIVE = false;
-
-/** Використовуються, лише якщо ввімкнути архів вище. */
-var SHEET_NAME = 'Анкети';
-var FOLDER_ID  = '12Qmtc9Oc3tNRRwMs9Fhwde3Wf0WGPohh';
-
 /** Gmail не пропускає листи важчі за 25 МБ. Тримаємо запас. */
 var MAX_ATTACH_MB = 20;
 
@@ -64,9 +57,9 @@ function doPost(e) {
 
     if (body.kind === 'submission') return json(handleSubmission(body));
 
-    /* сумісність зі старою схемою «спершу відповіді, потім файли» */
-    if (body.kind === 'file')    return json(legacyFile(body));
+    /* старий фронтенд надсилав відповіді й файли окремо */
     if (body.kind === 'answers') return json(handleSubmission({ payload: body.payload, files: [] }));
+    if (body.kind === 'file')    return json({ ok: true, skipped: 'Файли приймаються разом із відповідями' });
 
     return json({ ok: false, error: 'Невідомий тип запиту' });
 
@@ -76,7 +69,7 @@ function doPost(e) {
 }
 
 function doGet() {
-  return json({ ok: true, service: 'dt-quiz', mode: 'mail', time: new Date().toISOString() });
+  return json({ ok: true, service: 'dt-quiz', mode: 'mail-only', time: new Date().toISOString() });
 }
 
 
@@ -87,12 +80,11 @@ function doGet() {
 function handleSubmission(body) {
   var payload = body.payload || {};
   var files   = body.files || [];
-  var c       = (payload.answers || {}).contacts || {};
 
-  /* 1. PDF збираємо в памʼяті — на Диск нічого не пишемо */
+  /* PDF збирається в памʼяті — нічого нікуди не пишеться */
   var pdf = makePdfBlob(payload);
 
-  /* 2. Вкладення: спершу бриф, далі фото, поки не впираємось у ліміт */
+  /* Вкладення: спершу бриф, далі фото, поки не впираємось у ліміт Gmail */
   var attachments = [pdf];
   var bytes = pdf.getBytes().length;
   var limit = MAX_ATTACH_MB * 1024 * 1024;
@@ -106,28 +98,14 @@ function handleSubmission(body) {
     attachments.push(blob);
   });
 
-  /* 3. Листи */
   var sent = sendMails(payload, attachments, dropped);
-
-  /* 4. Архів — тільки якщо ввімкнено */
-  var extra = {};
-  if (SAVE_TO_SHEET) { try { appendRow(payload); } catch (err) { Logger.log('Таблиця: ' + err); } }
-  if (SAVE_TO_DRIVE) {
-    try {
-      var folder = ensureFolder(payload.submissionId, c.name);
-      folder.createFile(pdf);
-      files.forEach(function (f) { var b = toBlob(f); if (b) folder.createFile(b); });
-      extra.folderUrl = folder.getUrl();
-    } catch (err) { Logger.log('Диск: ' + err); }
-  }
 
   return {
     ok: true,
     submissionId: payload.submissionId || '',
     sentTo: sent,
     attached: attachments.length,
-    droppedFiles: dropped,
-    folderUrl: extra.folderUrl || ''
+    droppedFiles: dropped
   };
 }
 
@@ -149,16 +127,15 @@ function toBlob(f) {
    ============================================================ */
 
 function sendMails(payload, attachments, dropped) {
-  var a = payload.answers || {};
-  var c = a.contacts || {};
+  var c = (payload.answers || {}).contacts || {};
   var readable = (payload.readable || []).filter(function (r) { return r.answer; });
   var brief = briefTable(readable);
   var sent = [];
 
   var note = dropped > 0
     ? '<p style="margin:14px 0 0;font-size:13px;color:#A4442F">' +
-      'Частина фото не помістилася в лист (' + dropped + ' шт.) — попросіть клієнта надіслати їх окремо.' +
-      '</p>'
+      'Частина фото не помістилася в лист (' + dropped + ' шт.) — ' +
+      'попросіть клієнта надіслати їх окремо.</p>'
     : '';
 
   /* --- дизайнеру --- */
@@ -250,7 +227,7 @@ function briefTable(readable) {
 
 
 /* ============================================================
-   PDF-бриф (у памʼяті, на Диск не пишеться)
+   PDF-бриф (у памʼяті)
    ============================================================ */
 
 function makePdfBlob(payload) {
@@ -308,67 +285,6 @@ function makePdfBlob(payload) {
   return Utilities.newBlob(html, 'text/html', 'brief.html')
                   .getAs('application/pdf')
                   .setName('Бриф · ' + (c.name || 'без імені') + ' · ' + stamp + '.pdf');
-}
-
-
-/* ============================================================
-   Архів — працює, лише якщо ввімкнути прапорці вгорі
-   ============================================================ */
-
-function appendRow(payload) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(SHEET_NAME) || ss.insertSheet(SHEET_NAME);
-  var readable = payload.readable || [];
-
-  var head = sheet.getLastRow() > 0
-    ? sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0]
-    : [];
-  if (!head.length) head = ['Дата', 'ID анкети', 'Імʼя', 'Телефон', 'Email'];
-
-  var added = false;
-  readable.forEach(function (r) {
-    if (head.indexOf(r.question) === -1) { head.push(r.question); added = true; }
-  });
-  if (added || sheet.getLastRow() === 0) sheet.getRange(1, 1, 1, head.length).setValues([head]);
-
-  var c = (payload.answers || {}).contacts || {};
-  var by = {};
-  readable.forEach(function (r) { by[r.question] = r.answer; });
-
-  sheet.appendRow(head.map(function (col) {
-    switch (col) {
-      case 'Дата': return new Date(payload.submittedAt || Date.now());
-      case 'ID анкети': return payload.submissionId || '';
-      case 'Імʼя': return c.name || '';
-      case 'Телефон': return c.phone || '';
-      case 'Email': return c.email || '';
-      default: return by[col] || '';
-    }
-  }));
-
-  sheet.getRange(1, 1, 1, head.length).setFontWeight('bold').setWrap(true);
-  sheet.setFrozenRows(1);
-}
-
-function ensureFolder(submissionId, clientName) {
-  var root = DriveApp.getFolderById(FOLDER_ID);
-  var tag = '(' + (submissionId || 'без-id') + ')';
-  var it = root.getFolders();
-  while (it.hasNext()) {
-    var f = it.next();
-    if (f.getName().indexOf(tag) !== -1) return f;
-  }
-  var stamp = Utilities.formatDate(new Date(), 'Europe/Kiev', 'yyyy-MM-dd');
-  return root.createFolder(stamp + ' · ' + (clientName || 'Без імені') + ' ' + tag);
-}
-
-/** Старий шлях: файли приходили окремими запитами. Лишено для сумісності. */
-function legacyFile(body) {
-  if (!SAVE_TO_DRIVE) return { ok: true, skipped: 'Диск вимкнено' };
-  var folder = ensureFolder(body.submissionId, body.client);
-  var blob = toBlob(body.file);
-  if (!blob) return { ok: false, error: 'Файл не розібрався' };
-  return { ok: true, url: folder.createFile(blob).getUrl() };
 }
 
 
